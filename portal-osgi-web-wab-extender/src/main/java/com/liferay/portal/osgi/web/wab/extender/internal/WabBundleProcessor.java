@@ -14,6 +14,7 @@
 
 package com.liferay.portal.osgi.web.wab.extender.internal;
 
+import com.liferay.portal.kernel.io.unsync.UnsyncBufferedReader;
 import com.liferay.portal.kernel.util.ArrayUtil;
 import com.liferay.portal.kernel.util.ReflectionUtil;
 import com.liferay.portal.kernel.util.StringUtil;
@@ -34,6 +35,7 @@ import com.liferay.portal.osgi.web.wab.extender.internal.registration.ServletReg
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
@@ -41,6 +43,8 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
 import java.net.URL;
+
+import java.nio.charset.StandardCharsets;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -600,10 +604,41 @@ public class WabBundleProcessor {
 			URL url = initializerResources.nextElement();
 
 			try (InputStream inputStream = url.openStream()) {
-				String fqcn = StringUtil.read(inputStream);
+				try(UnsyncBufferedReader unsyncBufferedReader =
+					new UnsyncBufferedReader(new InputStreamReader(
+						inputStream, StandardCharsets.UTF_8))) {
 
-				processServletContainerInitializerClass(
-					fqcn, bundle, bundleWiring, servletContext);
+					String line;
+					while((line = unsyncBufferedReader.readLine()) != null) {
+
+						// Remove comments from the line
+
+						int hashIndex = line.indexOf('#');
+						if(hashIndex == 0) {
+							continue;
+						} else if(hashIndex > 0) {
+							line = line.substring(0, hashIndex);
+						}
+
+						// Trim line
+
+						line = line.trim();
+
+						// Skip over any empty lines
+
+						if(line.isEmpty()) {
+							continue;
+						}
+
+						// line should now be a fully qualified name of a class that implements the
+						// javax.servlet.ServletContainerInitializer interface
+
+						String fqcn = line;
+
+						processServletContainerInitializerClass(
+							fqcn, bundle, bundleWiring, servletContext);
+					}
+				}
 			}
 			catch (IOException ioe) {
 				_logger.log(Logger.LOG_ERROR, ioe.getMessage(), ioe);
